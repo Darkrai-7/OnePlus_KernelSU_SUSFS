@@ -223,22 +223,9 @@ jobs:
 
           # --------------------------------------------------------
           # OP15 EXACT MATCH
-          #
-          # IMPORTANT:
-          #
-          # .model == "OP15"
-          #
-          # This does NOT match:
-          #
-          # OP15R
-          # OP15-xxxx
-          # OP6T
-          # OP14
-          # etc.
           # --------------------------------------------------------
 
           jq_filter='map(select(.model == "OP15"))'
-
 
           filtered=$(jq -c "$jq_filter" matrix.json)
 
@@ -264,10 +251,6 @@ jobs:
             echo ""
             echo "Expected an exact model name:"
             echo "  OP15"
-
-            echo ""
-            echo "If your OP15 config uses a different model name,"
-            echo "change the exact filter in this workflow."
 
             exit 1
           fi
@@ -310,7 +293,6 @@ jobs:
               ]'
           )
 
-
           final_count=$(echo "$merged_matrix" | jq 'length')
 
           echo "✅ Found $final_count OP15 build(s)"
@@ -324,7 +306,6 @@ jobs:
             "  - \(.model) (\(.os_version), \(.android_version)-\(.kernel_version), \(.ksu_type) - \(.ksu_hash))"
           ' <<< "$merged_matrix"
 
-
           echo "count=$count" >> "$GITHUB_OUTPUT"
 
 
@@ -334,7 +315,6 @@ jobs:
 
           ksu_type=$(echo "$ksu_options_normalized" | jq -r '.[0].type')
           ksu_ref=$(echo "$ksu_options_normalized" | jq -r '.[0].hash')
-
 
           if [ "$ksu_type" == "KSUN" ]; then
 
@@ -348,10 +328,8 @@ jobs:
 
           fi
 
-
           HEAD_REF="refs/heads/${ksu_ref}"
           TAG_REF="refs/tags/${ksu_ref}"
-
 
           QUERY='
           query(
@@ -390,13 +368,11 @@ jobs:
 
           }'
 
-
           MAX_RETRIES=3
           RETRY_COUNT=0
           RETRY_DELAY=5
 
           echo "Resolving $ksu_type hash ($ksu_ref)..."
-
 
           until [ $RETRY_COUNT -ge $MAX_RETRIES ]; do
 
@@ -428,14 +404,12 @@ jobs:
 
           done
 
-
           if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
 
             echo "::error::GitHub API unreachable. Cannot validate $ksu_ref"
             exit 1
 
           fi
-
 
           resolved_sha=$(
             echo "$RESULT"
@@ -447,14 +421,12 @@ jobs:
             '
           )
 
-
           if [ "$resolved_sha" == "unknown" ]; then
 
             echo "::error::Ref/Hash '$ksu_ref' does not exist in $KSU_REPO_OWNER/$KSU_REPO_NAME"
             exit 1
 
           fi
-
 
           echo "  ✅ Resolved: $ksu_type/$ksu_ref → $resolved_sha"
 
@@ -481,7 +453,6 @@ jobs:
           SUSFS_REPO="https://gitlab.com/simonpunk/susfs4ksu.git"
           GITLAB_PROJECT_PATH="simonpunk/susfs4ksu"
 
-
           declare -A default_branches=(
 
             ["android12-5.10"]="gki-android12-5.10"
@@ -495,7 +466,6 @@ jobs:
             ["android16-6.12"]="gki-android16-6.12"
 
           )
-
 
           declare -A user_inputs=(
 
@@ -536,19 +506,15 @@ jobs:
 
           )
 
-
           echo "🔍 Resolving SUSFS hashes for: ${active_keys[*]:-none}"
-
 
           declare -A susfs_hashes
           declare -A susfs_versions_per_key
-
 
           for key in "${active_keys[@]}"; do
 
             default_val="${default_branches[$key]}"
             user_val="${user_inputs[$key]:-$default_val}"
-
 
             HASH_QUERY="
             {
@@ -560,7 +526,6 @@ jobs:
                 }
               }
             }"
-
 
             RELEASE_QUERY="
             {
@@ -582,20 +547,17 @@ jobs:
               }
             }"
 
-
             if [ "${{ inputs.make_release }}" = "true" ]; then
               GL_QUERY="$RELEASE_QUERY"
             else
               GL_QUERY="$HASH_QUERY"
             fi
 
-
             MAX_RETRIES=3
             RETRY_COUNT=0
             RETRY_DELAY=5
 
             resolved=""
-
 
             until [ $RETRY_COUNT -ge $MAX_RETRIES ]; do
 
@@ -609,7 +571,6 @@ jobs:
 
               EXIT_CODE=$?
 
-
               if [ $EXIT_CODE -eq 0 ] && [ -n "$RESPONSE" ]; then
 
                 resolved=$(
@@ -621,11 +582,9 @@ jobs:
                   '
                 )
 
-
                 if [ -n "$resolved" ] && [ "$resolved" != "null" ]; then
 
                   echo "  ✅ Query for $key Success"
-
 
                   if [ "${{ inputs.make_release }}" = "true" ]; then
 
@@ -654,7 +613,6 @@ jobs:
 
               fi
 
-
               RETRY_COUNT=$((RETRY_COUNT + 1))
 
               echo "::warning::GitLab GraphQL API failed (Attempt $RETRY_COUNT/$MAX_RETRIES). Retrying..."
@@ -663,7 +621,6 @@ jobs:
 
             done
 
-
             if [ -z "$resolved" ] || [ "$resolved" = "null" ]; then
 
               echo "::error::Could not resolve SUSFS ref '$user_val' for $key on GitLab."
@@ -671,7 +628,6 @@ jobs:
               exit 1
 
             fi
-
 
             if [
               "${{ inputs.make_release }}" = "true"
@@ -684,7 +640,6 @@ jobs:
               exit 1
 
             fi
-
 
             susfs_hashes["$key"]="$resolved"
 
@@ -700,7 +655,6 @@ jobs:
           active_gki_keys_csv=$(IFS=','; echo "${active_keys[*]:-}")
 
           echo "active_gki_keys=$active_gki_keys_csv" >> "$GITHUB_OUTPUT"
-
 
           echo "susfs_hash_android12_5_10=${susfs_hashes[android12-5.10]:-unknown}" >> "$GITHUB_OUTPUT"
 
@@ -721,7 +675,6 @@ jobs:
 
             susfs_base_version="unknown"
 
-
             for key in "${active_keys[@]}"; do
 
               ver="${susfs_versions_per_key[$key]:-unknown}"
@@ -736,7 +689,6 @@ jobs:
 
             done
 
-
             if [ "$susfs_base_version" = "unknown" ]; then
 
               echo "::error::Could not extract SUSFS_VERSION."
@@ -744,7 +696,6 @@ jobs:
               exit 1
 
             fi
-
 
             for key in "${active_keys[@]}"; do
 
@@ -759,7 +710,6 @@ jobs:
               fi
 
             done
-
 
             echo "susfs_base_version=$susfs_base_version" >> "$GITHUB_OUTPUT"
 
@@ -786,7 +736,6 @@ jobs:
               }'
           )
 
-
           merged_matrix=$(
             echo "$merged_matrix"
             |
@@ -801,7 +750,6 @@ jobs:
                 }
               ]'
           )
-
 
           merged_matrix=$(
             echo "$merged_matrix"
@@ -825,7 +773,6 @@ jobs:
             jq '[.[] | select(.model != "OP15")] | length'
           )
 
-
           if [ "$non_op15_count" -ne 0 ]; then
 
             echo "::error::SECURITY CHECK FAILED: matrix contains non-OP15 devices."
@@ -847,9 +794,7 @@ jobs:
               '{ include: $items }'
           )
 
-
           echo "matrix=$(jq -c . <<< "$wrapped")" >> "$GITHUB_OUTPUT"
-
 
           echo ""
           echo "=================================================="
@@ -863,7 +808,6 @@ jobs:
           '
 
           echo "=================================================="
-
 
           echo "::endgroup::"
 
@@ -902,7 +846,6 @@ jobs:
 
           fi
 
-
           build_ts_input="${{ inputs.build_timestamp }}"
 
           if [ -z "$build_ts_input" ]; then
@@ -914,7 +857,6 @@ jobs:
             build_ts_display="📌 \`$build_ts_input\`"
 
           fi
-
 
           {
             cat << EOF
@@ -955,7 +897,6 @@ jobs:
 
           } >> "$GITHUB_STEP_SUMMARY"
 
-
           declare -A susfs_inputs=(
 
             ["android12-5.10"]="${{ inputs.android12-5_10_susfs_branch_or_commit }}"
@@ -969,7 +910,6 @@ jobs:
             ["android16-6.12"]="${{ inputs.android16-6_12_susfs_branch_or_commit }}"
 
           )
-
 
           declare -A step_hashes=(
 
@@ -985,10 +925,8 @@ jobs:
 
           )
 
-
           IFS=',' read -ra active_keys_display \
             <<< "${{ steps.set-matrix.outputs.active_gki_keys }}"
-
 
           for key in "${active_keys_display[@]}"; do
 
@@ -996,7 +934,6 @@ jobs:
 
             value="${susfs_inputs[$key]:-}"
             fetched_hash="${step_hashes[$key]:-unknown}"
-
 
             if [ -z "$value" ]; then
 
@@ -1016,7 +953,6 @@ jobs:
             fi
 
           done
-
 
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
@@ -1040,17 +976,6 @@ jobs:
 
 # ==================================================================
 # CREATE CACHE RELEASES
-#
-# THIS IS THE IMPORTANT FIX FOR:
-#
-# release not found
-#
-# The local cache action executes:
-#
-# gh release upload ccache-cache ...
-# gh release upload lto-cache ...
-#
-# Those releases must already exist.
 # ==================================================================
 
   prepare_cache_releases:
@@ -1091,7 +1016,6 @@ jobs:
 
               echo "✅ Release already exists: $tag"
 
-              # Make absolutely sure it is NOT the latest release.
               gh release edit "$tag" \
                 --repo "$REPO" \
                 --prerelease \
@@ -1100,7 +1024,6 @@ jobs:
 
               return 0
             fi
-
 
             echo "Creating release: $tag"
 
@@ -1115,7 +1038,6 @@ jobs:
 
             else
 
-              # Another workflow may have created it at the same time.
               echo "Creation failed. Checking whether another workflow created it..."
 
               sleep 3
@@ -1137,16 +1059,13 @@ jobs:
 
           }
 
-
           ensure_release \
             "ccache-cache" \
             "Persistent ccache cache"
 
-
           ensure_release \
             "lto-cache" \
             "Persistent LTO cache"
-
 
           echo ""
           echo "=================================================="
@@ -1158,15 +1077,12 @@ jobs:
             --json tagName,isPrerelease,isLatest \
             --jq '"ccache-cache: tag=\(.tagName), prerelease=\(.isPrerelease), latest=\(.isLatest)"'
 
-
           gh release view lto-cache \
             --repo "$REPO" \
             --json tagName,isPrerelease,isLatest \
             --jq '"lto-cache: tag=\(.tagName), prerelease=\(.isPrerelease), latest=\(.isLatest)"'
 
-
           echo "=================================================="
-
 
           {
             echo "## 💾 Persistent Cache Releases"
@@ -1176,7 +1092,6 @@ jobs:
             echo ""
             echo "Both cache releases are marked **Pre-release** and **not Latest**."
           } >> "$GITHUB_STEP_SUMMARY"
-
 
           echo "::endgroup::"
 
@@ -1208,7 +1123,6 @@ jobs:
 
           ok=0
 
-
           for attempt in 1 2 3 4 5 6; do
 
             if curl \
@@ -1226,13 +1140,11 @@ jobs:
 
             fi
 
-
             echo "attempt $attempt failed (GitHub raw 504/throttle); backing off..."
 
             sleep $(( attempt * 5 + RANDOM % 6 ))
 
           done
-
 
           if [ "$ok" = 1 ]; then
 
@@ -1245,7 +1157,6 @@ jobs:
             rm -f ccache
 
           fi
-
 
           echo "::endgroup::"
 
@@ -1354,7 +1265,6 @@ jobs:
             update \
             -qq
 
-
           sudo DEBIAN_FRONTEND=noninteractive apt-get install \
             -y \
             --no-install-recommends \
@@ -1385,7 +1295,6 @@ jobs:
             libdw-dev \
             elfutils \
             pigz
-
 
           sudo apt-get clean
 
@@ -1418,7 +1327,6 @@ jobs:
 
           echo "::group::Install ccache"
 
-
           if [ -s ccache-dl/ccache ]; then
 
             sudo cp -f \
@@ -1436,14 +1344,11 @@ jobs:
 
           fi
 
-
           rm -rf ccache-dl
-
 
           echo "[DEBUG] Ccache version:"
 
           ccache --version | head -1
-
 
           echo "::endgroup::"
 
@@ -1459,7 +1364,6 @@ jobs:
 
           set -euo pipefail
 
-
           if command -v ccache >/dev/null 2>&1; then
 
             CACHE_DIR="${{ github.workspace }}/.ccache"
@@ -1468,10 +1372,8 @@ jobs:
 
             CCACHE_LOG="${{ github.workspace }}/ccache.log"
 
-
             mkdir -p "$CACHE_DIR"
             mkdir -p "$LDCACHE_DIR"
-
 
             SETTINGS=(
 
@@ -1507,7 +1409,6 @@ jobs:
 
             )
 
-
             for setting in "${SETTINGS[@]}"; do
 
               export "$setting"
@@ -1515,7 +1416,6 @@ jobs:
               echo "$setting" >> "$GITHUB_ENV"
 
             done
-
 
             if [ "${{ inputs.debug }}" == "true" ]; then
 
@@ -1525,7 +1425,6 @@ jobs:
 
             fi
 
-
             if ccache --help 2>&1 | grep -q 'depend_mode'; then
 
               export CCACHE_DEPEND=true
@@ -1533,7 +1432,6 @@ jobs:
               echo "CCACHE_DEPEND=true" >> "$GITHUB_ENV"
 
             fi
-
 
             echo "✅ ccache configured successfully"
 
@@ -1543,13 +1441,11 @@ jobs:
 
             ccache -p
 
-
           else
 
             echo "ccache not found, skipping configuration."
 
           fi
-
 
           echo "::endgroup::"
 
@@ -1601,6 +1497,119 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
 
+      # ============================================================
+      # NEW: FIND OP15 ANYKERNEL3 ZIP
+      # ============================================================
+
+      - name: 🔎 Find OP15 AnyKernel3 ZIP
+        id: find-ak3
+        if: ${{ steps.build.outcome == 'success' }}
+        shell: bash
+        run: |
+
+          set -euo pipefail
+
+          echo "::group::Searching for OP15 AnyKernel3 ZIP"
+
+          AK3_DIR="${RUNNER_TEMP}/op15-ak3"
+
+          rm -rf "$AK3_DIR"
+
+          mkdir -p "$AK3_DIR"
+
+          echo "Searching workspace for:"
+          echo "  AK3_OP15*.zip"
+
+          echo ""
+
+          mapfile -t AK3_FILES < <(
+            find "$GITHUB_WORKSPACE" \
+              -type f \
+              -name 'AK3_OP15*.zip' \
+              -print
+          )
+
+          if [ "${#AK3_FILES[@]}" -eq 0 ]; then
+
+            echo "::error::No AK3_OP15*.zip was found after the kernel build."
+
+            echo ""
+
+            echo "Files containing 'AK3' found in workspace:"
+
+            find "$GITHUB_WORKSPACE" \
+              -type f \
+              \( -iname '*AK3*' -o -iname '*AnyKernel*' \) \
+              -print \
+              | head -100 \
+              || true
+
+            echo ""
+
+            echo "Top-level ZIP files:"
+
+            find "$GITHUB_WORKSPACE" \
+              -type f \
+              -name '*.zip' \
+              -print \
+              | head -100 \
+              || true
+
+            exit 1
+
+          fi
+
+          echo "Found ${#AK3_FILES[@]} OP15 AK3 ZIP(s):"
+
+          for file in "${AK3_FILES[@]}"; do
+
+            echo "  ✅ $file"
+
+          done
+
+          echo ""
+
+          # ----------------------------------------------------------
+          # Copy only the OP15 AK3 ZIP(s) to a clean directory.
+          # ----------------------------------------------------------
+
+          for file in "${AK3_FILES[@]}"; do
+
+            cp -f \
+              "$file" \
+              "$AK3_DIR/"
+
+          done
+
+          echo "Artifact contents:"
+
+          ls -lah "$AK3_DIR"
+
+          echo ""
+
+          echo "ak3_dir=$AK3_DIR" >> "$GITHUB_OUTPUT"
+
+          echo "::endgroup::"
+
+
+      # ============================================================
+      # NEW: UPLOAD AK3 ZIP AS GITHUB ACTIONS ARTIFACT
+      # ============================================================
+
+      - name: 📦 Upload OP15 AnyKernel3 ZIP
+        if: ${{ steps.build.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+
+          name: AK3-OP15-${{ matrix.os_version }}-${{ matrix.android_version }}-${{ matrix.kernel_version }}-${{ matrix.ksu_type }}
+
+          path: ${{ steps.find-ak3.outputs.ak3_dir }}/*.zip
+
+          if-no-files-found: error
+
+          retention-days: 7
+
+
       # ------------------------------------------------------------
       # Statistics
       # ------------------------------------------------------------
@@ -1612,13 +1621,11 @@ jobs:
 
           echo "::group::Build Statistics"
 
-
           echo "Device: ${{ matrix.model }}"
 
           echo "OS Version: ${{ matrix.os_version }}"
 
           echo "Kernel: ${{ matrix.android_version }}-${{ matrix.kernel_version }}"
-
 
           if [ "${{ matrix.susfs }}" = true ]; then
 
@@ -1626,9 +1633,7 @@ jobs:
 
           fi
 
-
           echo "Status: ${{ job.status }}"
-
 
           if [ "${{ steps.build.outcome }}" = "success" ]; then
 
@@ -1641,7 +1646,6 @@ jobs:
             echo "Outputs:"
 
             echo "  - Kernel: ${{ steps.build.outputs.kernel_version }}"
-
 
             if [ "${{ matrix.ksu_type }}" = "KSUN" ]; then
 
@@ -1663,16 +1667,13 @@ jobs:
 
             fi
 
-
             if [ "${{ matrix.susfs }}" = true ]; then
 
               echo "  - SUSFS: ${{ steps.build.outputs.susfs_version }}"
 
             fi
 
-
             echo "  - Build time: ${{ steps.build.outputs.build_time }}s"
-
 
             if [ "${{ inputs.clean_build }}" != "true" ]; then
 
@@ -1686,7 +1687,6 @@ jobs:
 
             fi
 
-
             if [ -n "${{ steps.build.outputs.warnings }}" ]; then
 
               echo "  - Warnings: ${{ steps.build.outputs.warnings }}"
@@ -1698,7 +1698,6 @@ jobs:
             echo "❌ Build failed"
 
           fi
-
 
           echo "::endgroup::"
 
@@ -1721,7 +1720,6 @@ jobs:
 
           EOF
 
-
           if [ "${{ matrix.susfs }}" = true ]; then
 
             cat >> "$GITHUB_STEP_SUMMARY" << EOF
@@ -1732,7 +1730,6 @@ jobs:
 
           fi
 
-
           if [ "${{ steps.build.outcome }}" = "success" ]; then
 
             cat >> "$GITHUB_STEP_SUMMARY" << EOF
@@ -1741,7 +1738,6 @@ jobs:
           |--------|-------|
           | **Kernel** | ${{ steps.build.outputs.kernel_version }} |
           EOF
-
 
             if [ "${{ matrix.ksu_type }}" = "KSUN" ]; then
 
@@ -1759,7 +1755,6 @@ jobs:
 
             fi
 
-
             if [ "${{ matrix.susfs }}" = true ]; then
 
               cat >> "$GITHUB_STEP_SUMMARY" << EOF
@@ -1769,12 +1764,10 @@ jobs:
 
             fi
 
-
             cat >> "$GITHUB_STEP_SUMMARY" << EOF
 
           | **Build Time** | ${{ steps.build.outputs.build_time }}s |
           EOF
-
 
             if [ "${{ inputs.clean_build }}" != "true" ]; then
 
@@ -1786,14 +1779,12 @@ jobs:
 
             fi
 
-
             if [ -n "${{ steps.build.outputs.warnings }}" ]; then
 
               echo "| **Warnings** | ${{ steps.build.outputs.warnings }} |" \
                 >> "$GITHUB_STEP_SUMMARY"
 
             fi
-
 
             cat >> "$GITHUB_STEP_SUMMARY" << EOF
 
@@ -1806,6 +1797,34 @@ jobs:
           fi
 
 
+      # ============================================================
+      # NEW: AK3 DOWNLOAD INFORMATION
+      # ============================================================
+
+      - name: 📥 AK3 artifact summary
+        if: ${{ steps.build.outcome == 'success' }}
+        shell: bash
+        run: |
+
+          cat >> "$GITHUB_STEP_SUMMARY" << EOF
+
+          ---
+
+          ## 📦 OP15 AnyKernel3 Download
+
+          The OP15 AnyKernel3 kernel ZIP has been uploaded as a GitHub Actions artifact.
+
+          **Artifact:**
+
+          \`AK3-OP15-${{ matrix.os_version }}-${{ matrix.android_version }}-${{ matrix.kernel_version }}-${{ matrix.ksu_type }}\`
+
+          Go to the **Artifacts** section of this workflow run to download the kernel ZIP.
+
+          **Target:** OP15 only.
+
+          EOF
+
+
       # ------------------------------------------------------------
       # Cleanup
       # ------------------------------------------------------------
@@ -1816,7 +1835,6 @@ jobs:
 
           echo "::group::Cleanup"
 
-
           sudo rm -rf \
             "$GITHUB_WORKSPACE/out" \
             "$GITHUB_WORKSPACE/build" \
@@ -1824,7 +1842,6 @@ jobs:
             "$GITHUB_WORKSPACE/.repo" \
             /tmp/* \
             || true
-
 
           if command -v ccache >/dev/null 2>&1; then
 
@@ -1840,13 +1857,11 @@ jobs:
 
           fi
 
-
           echo ""
 
           echo "💽 Final disk usage:"
 
           df -h /
-
 
           echo "::endgroup::"
 
@@ -1923,7 +1938,6 @@ jobs:
 
           set -euo pipefail
 
-
           LATEST_MATCHING_TAG=$(
             gh api "repos/$REPO_OWNER/$REPO_NAME/tags" \
               --jq "
@@ -1951,7 +1965,6 @@ jobs:
               "
           )
 
-
           if [ -z "$LATEST_MATCHING_TAG" ]; then
 
             NEW_TAG="${SUSFS_BASE_VERSION}-r1"
@@ -1968,11 +1981,9 @@ jobs:
 
           fi
 
-
           echo "New tag: $NEW_TAG"
 
           echo "NEW_TAG=${NEW_TAG}" >> "$GITHUB_ENV"
-
 
           git tag "$NEW_TAG"
 
@@ -2001,9 +2012,7 @@ jobs:
 
           set -euo pipefail
 
-
           echo "=== Start building OP15 release notes ==="
-
 
           # --------------------------------------------------------
           # Remove ccache binary artifact
@@ -2013,21 +2022,16 @@ jobs:
             ./downloaded-artifacts/ccache-binary.zip \
             || true
 
-
           # --------------------------------------------------------
           # Collect build metadata
           # --------------------------------------------------------
 
           declare -A device_info
 
-
           JSON_BUILD_DATA=$(
-
             jq -c '.' \
               ./downloaded-artifacts/matrix.json
-
           )
-
 
           for file in \
             $(find downloaded-artifacts \
@@ -2036,16 +2040,13 @@ jobs:
               -type f \
               | sort); do
 
-
             [ -f "$file" ] || continue
-
 
             zipname=$(basename "$file" .zip)
 
             rest="${zipname#AK3_}"
 
             IFS='_' read -ra parts <<< "$rest"
-
 
             model="${parts[0]}"
 
@@ -2057,7 +2058,6 @@ jobs:
 
             ksu_ver="${parts[4]}"
 
-
             if [ "${parts[5]:-}" = "SuSFS" ]; then
 
               susfs_ver="${parts[6]:-unknown}"
@@ -2067,7 +2067,6 @@ jobs:
               susfs_ver="none"
 
             fi
-
 
             # ----------------------------------------------------
             # HARD OP15 CHECK
@@ -2081,14 +2080,11 @@ jobs:
 
             fi
 
-
             full_model="${model}_${os_version}_${kernel_version}"
-
 
             device_info["$full_model"]="$model|$os_version|$kernel_version|$ksu_type|$ksu_ver|$susfs_ver|$zipname"
 
           done
-
 
           ksu_type="${{ fromJSON(needs.set-op-model.outputs.ksu_options_normalized)[0].type }}"
 
@@ -2096,11 +2092,9 @@ jobs:
 
           ksu_resolved_hash="${{ needs.set-op-model.outputs.ksu_resolved_hash }}"
 
-
           OPTIMIZE_LEVEL="${{ inputs.optimize_level }}"
 
           CLEAN_BUILD="${{ inputs.clean_build }}"
-
 
           declare -A susfs_map=(
 
@@ -2116,10 +2110,8 @@ jobs:
 
           )
 
-
           IFS=',' read -ra active_gki_keys \
             <<< "${{ needs.set-op-model.outputs.active_gki_keys }}"
-
 
           # --------------------------------------------------------
           # Release notes header
@@ -2142,11 +2134,9 @@ jobs:
           |-------|------------|----------------|----------|
           EOF
 
-
           while IFS= read -r full_key; do
 
             [ -z "$full_key" ] && continue
-
 
             IFS='|' read -r \
               model \
@@ -2158,20 +2148,13 @@ jobs:
               zipfile \
               <<< "${device_info["$full_key"]}"
 
-
             full_kv=$(
-
               echo "$kernel_ver"
-
               |
-
               sed 's/^[^-]*-//'
-
             )
 
-
             possible_orig_model="${model}-${full_kv}"
-
 
             feature_flags=$(
               jq -r \
@@ -2206,9 +2189,7 @@ jobs:
               ' <<< "$JSON_BUILD_DATA"
             )
 
-
             features=()
-
 
             if [[ -z "$feature_flags" ]]; then
 
@@ -2231,7 +2212,6 @@ jobs:
                 ntsync \
                 <<< "$feature_flags"
 
-
               [[ "$hmbird" == "true" ]] && features+=("🐦 HMBIRD")
 
               [[ "$susfs" == "true" ]] && features+=("ඞ SusFS")
@@ -2252,9 +2232,7 @@ jobs:
 
               [[ "$ntsync" == "true" ]] && features+=("🔃 NTSync")
 
-
               total=${#features[@]}
-
 
               if [ "$total" -eq 0 ]; then
 
@@ -2266,13 +2244,11 @@ jobs:
 
                 count=0
 
-
                 for item in "${features[@]}"; do
 
                   count=$((count + 1))
 
                   features_str+="$item"
-
 
                   if [ "$count" -lt "$total" ]; then
 
@@ -2294,7 +2270,6 @@ jobs:
 
             fi
 
-
             if [[ "$os_ver" =~ ^A[0-9]+$ ]]; then
 
               os_display_version="Android ${os_ver#A}"
@@ -2305,12 +2280,9 @@ jobs:
 
             fi
 
-
             download_url="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${NEW_TAG}/${zipfile}.zip"
 
-
             model_link="[$model]($download_url)"
-
 
             printf \
               "| %s | %-10s | %-16s | %-48s |\n" \
@@ -2320,7 +2292,6 @@ jobs:
               "$features_str" \
               >> release_notes.md
 
-
           done < <(
 
             printf '%s\n' \
@@ -2328,7 +2299,6 @@ jobs:
               sort
 
           )
-
 
           if [ ${#device_info[@]} -eq 0 ]; then
 
@@ -2338,14 +2308,12 @@ jobs:
 
           fi
 
-
           first_entry=$(
             printf '%s\n' \
               "${!device_info[@]}" |
               sort |
               head -n1
           )
-
 
           IFS='|' read -r \
             _ \
@@ -2356,7 +2324,6 @@ jobs:
             _ \
             _ \
             <<< "${device_info["$first_entry"]}"
-
 
           # --------------------------------------------------------
           # Build configuration
@@ -2372,12 +2339,10 @@ jobs:
           |-----------|----------------|
           EOF
 
-
           ksu_display_value() {
 
             local input="$1"
             local resolved="$2"
-
 
             if [[ "$input" =~ ^[0-9a-f]{40}$ ]]; then
 
@@ -2391,13 +2356,11 @@ jobs:
 
           }
 
-
           ksu_display=$(
             ksu_display_value \
               "$ksu_ref" \
               "$ksu_resolved_hash"
           )
-
 
           if [ "$ksu_type" == "KSUN" ]; then
 
@@ -2417,7 +2380,6 @@ jobs:
 
           fi
 
-
           cat << EOF >> release_notes.md
 
           | **Target Device** | \`OP15\` |
@@ -2432,7 +2394,6 @@ jobs:
           |----------------|--------------|
           EOF
 
-
           for key in "${active_gki_keys[@]}"; do
 
             [ -z "$key" ] && continue
@@ -2441,7 +2402,6 @@ jobs:
               >> release_notes.md
 
           done
-
 
           cat << EOF >> release_notes.md
 
@@ -2452,7 +2412,6 @@ jobs:
           ### 🔐 Root Management
 
           EOF
-
 
           if [ "$ksu_type" == "KSUN" ]; then
 
@@ -2471,7 +2430,6 @@ jobs:
           EOF
 
           fi
-
 
           cat << EOF >> release_notes.md
 
@@ -2518,7 +2476,6 @@ jobs:
 
           EOF
 
-
           if [ "$ksu_type" == "KSUN" ]; then
 
             cat << EOF >> release_notes.md
@@ -2540,7 +2497,6 @@ jobs:
           EOF
 
           fi
-
 
           cat << EOF >> release_notes.md
 
@@ -2603,7 +2559,6 @@ jobs:
 
           EOF
 
-
           echo "--- Final Release Notes ---"
 
           cat release_notes.md
@@ -2632,22 +2587,18 @@ jobs:
 
           set -euo pipefail
 
-
           for file in ./downloaded-artifacts/*.zip; do
 
             if [ -f "$file" ]; then
 
               basename_file=$(basename "$file")
 
-
               # Never upload ccache artifact
               if [ "$basename_file" = "ccache-binary.zip" ]; then
                 continue
               fi
 
-
               echo "Checking asset: $basename_file"
-
 
               # Only OP15 assets are allowed.
               if [[ "$basename_file" != AK3_OP15* ]]; then
@@ -2658,9 +2609,7 @@ jobs:
 
               fi
 
-
               echo "Uploading OP15 asset: $file"
-
 
               gh release upload \
                 "${{ env.NEW_TAG }}" \
@@ -2705,7 +2654,6 @@ jobs:
 
           EOF
 
-
           for zip in ./downloaded-artifacts/AK3_OP15*.zip; do
 
             if [ -f "$zip" ]; then
@@ -2719,14 +2667,12 @@ jobs:
                 bc
               )
 
-
               echo "- \`$name\` (${size_mb} MB)" \
                 >> "$GITHUB_STEP_SUMMARY"
 
             fi
 
           done
-
 
           cat >> "$GITHUB_STEP_SUMMARY" << EOF
 
@@ -2736,5 +2682,9 @@ jobs:
 
           - \`ccache-cache\` — Pre-release / not Latest
           - \`lto-cache\` — Pre-release / not Latest
+
+          ### 📦 Actions Artifact
+
+          The OP15 AnyKernel3 ZIP is also available from the workflow run's **Artifacts** section.
 
           EOF
