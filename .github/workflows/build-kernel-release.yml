@@ -1,3 +1,4 @@
+```yaml
 name: Build and Release OnePlus 15 Kernel
 
 permissions:
@@ -13,11 +14,17 @@ on:
         type: boolean
         default: false
 
+      # ============================================================
+      # DOWNLOAD ARTIFACT OPTION
+      # ============================================================
+      download_artifact:
+        description: 'Upload built AK3_OP15 kernel ZIP as a downloadable GitHub Actions artifact'
+        required: true
+        type: boolean
+        default: true
+
       # ------------------------------------------------------------
       # OP15 ONLY
-      # ------------------------------------------------------------
-      # Deliberately no OP6T / OP15R / OP14 / OP13 / etc.
-      # The matrix filter below ALSO performs an exact model match.
       # ------------------------------------------------------------
       op_model:
         description: 'OnePlus device to build'
@@ -122,21 +129,12 @@ jobs:
 
     steps:
 
-      # ------------------------------------------------------------
-      # Checkout configs only
-      # ------------------------------------------------------------
-
       - name: 📥 Checkout Code (to access configs/)
         uses: actions/checkout@v6
         with:
           sparse-checkout: |
             configs/
           sparse-checkout-cone-mode: false
-
-
-      # ------------------------------------------------------------
-      # Generate OP15-only build matrix
-      # ------------------------------------------------------------
 
       - name: 🔍 Generate OP15-only build matrix
         id: set-matrix
@@ -149,10 +147,6 @@ jobs:
           input="${{ github.event.inputs.op_model }}"
           ksu_options_raw='${{ github.event.inputs.ksu_options }}'
 
-          # --------------------------------------------------------
-          # HARD SECURITY / SAFETY CHECK
-          # --------------------------------------------------------
-
           if [ "$input" != "OP15" ]; then
             echo "::error::This workflow only supports OP15."
             echo "::error::Received: $input"
@@ -161,10 +155,6 @@ jobs:
 
           echo "🎯 Target device: OP15"
           echo "🚫 OP15R / OP6T / OP13 / OP14 / other devices are disabled."
-
-          # --------------------------------------------------------
-          # Normalize KSU configuration
-          # --------------------------------------------------------
 
           if ! ksu_options_normalized=$(echo "$ksu_options_raw" | jq -c '
             map(
@@ -192,10 +182,6 @@ jobs:
 
           echo "ksu_options_normalized=$ksu_options_normalized" >> "$GITHUB_OUTPUT"
 
-          # --------------------------------------------------------
-          # Read all configs
-          # --------------------------------------------------------
-
           echo "[" > matrix.json
 
           mapfile -t all_json_files < <(
@@ -203,27 +189,18 @@ jobs:
           )
 
           for i in "${!all_json_files[@]}"; do
-
             file="${all_json_files[$i]}"
 
             if [ -f "$file" ]; then
-
               jq -r '.' "$file" >> matrix.json
 
               if [ $((i+1)) -lt ${#all_json_files[@]} ]; then
                 echo "," >> matrix.json
               fi
-
             fi
-
           done
 
           echo "]" >> matrix.json
-
-
-          # --------------------------------------------------------
-          # OP15 EXACT MATCH
-          # --------------------------------------------------------
 
           jq_filter='map(select(.model == "OP15"))'
 
@@ -231,17 +208,12 @@ jobs:
 
           count=$(jq 'length' <<< "$filtered")
 
-
-          # --------------------------------------------------------
-          # Fail if OP15 does not exist
-          # --------------------------------------------------------
-
           if [ "$count" -eq 0 ]; then
 
             echo "::error::No exact OP15 configuration was found in configs/."
 
             echo ""
-            echo "Available models found in configs/:"
+            echo "Available models found in configs:"
 
             jq -r '
               .[]
@@ -255,11 +227,6 @@ jobs:
             exit 1
           fi
 
-
-          # --------------------------------------------------------
-          # Sort OP15 configurations
-          # --------------------------------------------------------
-
           filtered=$(echo "$filtered" | jq '
             sort_by(
               (.os_version | gsub("A"; "") | tonumber? // 0) * -1,
@@ -268,11 +235,6 @@ jobs:
           ')
 
           echo "$filtered" | jq '.' > matrix.json
-
-
-          # --------------------------------------------------------
-          # Combine each OP15 config with each KSU configuration
-          # --------------------------------------------------------
 
           merged_matrix=$(
             jq -n \
@@ -308,24 +270,15 @@ jobs:
 
           echo "count=$count" >> "$GITHUB_OUTPUT"
 
-
-          # --------------------------------------------------------
-          # Resolve KernelSU
-          # --------------------------------------------------------
-
           ksu_type=$(echo "$ksu_options_normalized" | jq -r '.[0].type')
           ksu_ref=$(echo "$ksu_options_normalized" | jq -r '.[0].hash')
 
           if [ "$ksu_type" == "KSUN" ]; then
-
             KSU_REPO_OWNER="KernelSU-Next"
             KSU_REPO_NAME="KernelSU-Next"
-
           else
-
             KSU_REPO_OWNER="tiann"
             KSU_REPO_NAME="KernelSU"
-
           fi
 
           HEAD_REF="refs/heads/${ksu_ref}"
@@ -339,7 +292,6 @@ jobs:
             $tagRef: String!,
             $objRef: String!
           ) {
-
             repository(owner: $owner, name: $name) {
 
               hb: ref(qualifiedName: $headRef) {
@@ -365,7 +317,6 @@ jobs:
               }
 
             }
-
           }'
 
           MAX_RETRIES=3
@@ -390,10 +341,8 @@ jobs:
             EXIT_CODE=$?
 
             if [ $EXIT_CODE -eq 0 ] && [ -n "$RESULT" ]; then
-
               echo "  ✅ API Success"
               break
-
             fi
 
             RETRY_COUNT=$((RETRY_COUNT + 1))
@@ -405,105 +354,61 @@ jobs:
           done
 
           if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-
             echo "::error::GitHub API unreachable. Cannot validate $ksu_ref"
             exit 1
-
           fi
 
           resolved_sha=$(
-            echo "$RESULT"
-            |
+            echo "$RESULT" |
             jq -r '
-              .data.repository
-              |
+              .data.repository |
               (.hb.t.o // .ht.t.o // .ho.o // "unknown")
             '
           )
 
           if [ "$resolved_sha" == "unknown" ]; then
-
             echo "::error::Ref/Hash '$ksu_ref' does not exist in $KSU_REPO_OWNER/$KSU_REPO_NAME"
             exit 1
-
           fi
 
           echo "  ✅ Resolved: $ksu_type/$ksu_ref → $resolved_sha"
 
           echo "ksu_resolved_hash=$resolved_sha" >> "$GITHUB_OUTPUT"
 
-
-          # --------------------------------------------------------
-          # Inject resolved KSU hash
-          # --------------------------------------------------------
-
           merged_matrix=$(
-            echo "$merged_matrix"
-            |
+            echo "$merged_matrix" |
             jq \
               --arg resolved_sha "$resolved_sha" \
               'map(.ksu_resolved_hash = $resolved_sha)'
           )
 
-
-          # --------------------------------------------------------
-          # SUSFS
-          # --------------------------------------------------------
-
           SUSFS_REPO="https://gitlab.com/simonpunk/susfs4ksu.git"
           GITLAB_PROJECT_PATH="simonpunk/susfs4ksu"
 
           declare -A default_branches=(
-
             ["android12-5.10"]="gki-android12-5.10"
-
             ["android13-5.15"]="gki-android13-5.15"
-
             ["android14-6.1"]="gki-android14-6.1"
-
             ["android15-6.6"]="gki-android15-6.6"
-
             ["android16-6.12"]="gki-android16-6.12"
-
           )
 
           declare -A user_inputs=(
-
             ["android12-5.10"]="${{ inputs.android12-5_10_susfs_branch_or_commit }}"
-
             ["android13-5.15"]="${{ inputs.android13-5_15_susfs_branch_or_commit }}"
-
             ["android14-6.1"]="${{ inputs.android14-6_1_susfs_branch_or_commit }}"
-
             ["android15-6.6"]="${{ inputs.android15-6_6_susfs_branch_or_commit }}"
-
             ["android16-6.12"]="${{ inputs.android16-6_12_susfs_branch_or_commit }}"
-
           )
 
-
-          # --------------------------------------------------------
-          # Active GKI versions
-          # --------------------------------------------------------
-
           mapfile -t active_keys < <(
-
-            echo "$merged_matrix"
-
-            |
-
+            echo "$merged_matrix" |
             jq -r '
-              .[]
-              |
-              select(.susfs == true)
-              |
+              .[] |
+              select(.susfs == true) |
               "\(.android_version)-\(.kernel_version)"
-            '
-
-            |
-
+            ' |
             sort -u
-
           )
 
           echo "🔍 Resolving SUSFS hashes for: ${active_keys[*]:-none}"
@@ -574,8 +479,7 @@ jobs:
               if [ $EXIT_CODE -eq 0 ] && [ -n "$RESPONSE" ]; then
 
                 resolved=$(
-                  echo "$RESPONSE"
-                  |
+                  echo "$RESPONSE" |
                   jq -r '
                     .data.project.repository.ch.sha
                     // empty
@@ -589,15 +493,12 @@ jobs:
                   if [ "${{ inputs.make_release }}" = "true" ]; then
 
                     extracted=$(
-                      echo "$RESPONSE"
-                      |
+                      echo "$RESPONSE" |
                       jq -r '
                         .data.project.repository.blobs.nodes[0].rawBlob
                         // empty
-                      '
-                      |
-                      grep '#define SUSFS_VERSION'
-                      |
+                      ' |
+                      grep '#define SUSFS_VERSION' |
                       awk -F'"' '{print $2}'
                     )
 
@@ -622,11 +523,8 @@ jobs:
             done
 
             if [ -z "$resolved" ] || [ "$resolved" = "null" ]; then
-
               echo "::error::Could not resolve SUSFS ref '$user_val' for $key on GitLab."
-
               exit 1
-
             fi
 
             if [
@@ -634,11 +532,8 @@ jobs:
             ] && [
               "${susfs_versions_per_key[$key]:-unknown}" = "unknown"
             ]; then
-
               echo "::error::Could not extract SUSFS_VERSION from susfs.h for '$key'."
-
               exit 1
-
             fi
 
             susfs_hashes["$key"]="$resolved"
@@ -647,29 +542,15 @@ jobs:
 
           done
 
-
-          # --------------------------------------------------------
-          # Active GKI output
-          # --------------------------------------------------------
-
           active_gki_keys_csv=$(IFS=','; echo "${active_keys[*]:-}")
 
           echo "active_gki_keys=$active_gki_keys_csv" >> "$GITHUB_OUTPUT"
 
           echo "susfs_hash_android12_5_10=${susfs_hashes[android12-5.10]:-unknown}" >> "$GITHUB_OUTPUT"
-
           echo "susfs_hash_android13_5_15=${susfs_hashes[android13-5.15]:-unknown}" >> "$GITHUB_OUTPUT"
-
           echo "susfs_hash_android14_6_1=${susfs_hashes[android14-6.1]:-unknown}" >> "$GITHUB_OUTPUT"
-
           echo "susfs_hash_android15_6_6=${susfs_hashes[android15-6.6]:-unknown}" >> "$GITHUB_OUTPUT"
-
           echo "susfs_hash_android16_6_12=${susfs_hashes[android16-6.12]:-unknown}" >> "$GITHUB_OUTPUT"
-
-
-          # --------------------------------------------------------
-          # SUSFS release version
-          # --------------------------------------------------------
 
           if [ "${{ inputs.make_release }}" = "true" ]; then
 
@@ -680,21 +561,15 @@ jobs:
               ver="${susfs_versions_per_key[$key]:-unknown}"
 
               if [ "$ver" != "unknown" ]; then
-
                 susfs_base_version="$ver"
-
                 break
-
               fi
 
             done
 
             if [ "$susfs_base_version" = "unknown" ]; then
-
               echo "::error::Could not extract SUSFS_VERSION."
-
               exit 1
-
             fi
 
             for key in "${active_keys[@]}"; do
@@ -715,11 +590,6 @@ jobs:
 
           fi
 
-
-          # --------------------------------------------------------
-          # Inject SUSFS resolved hash
-          # --------------------------------------------------------
-
           susfs_hashes_json=$(
             jq -n \
               --arg a12 "${susfs_hashes[android12-5.10]:-unknown}" \
@@ -737,13 +607,11 @@ jobs:
           )
 
           merged_matrix=$(
-            echo "$merged_matrix"
-            |
+            echo "$merged_matrix" |
             jq \
               --argjson hashes "$susfs_hashes_json" \
               '[
-                .[]
-                |
+                .[] |
                 . + {
                   susfs_resolved_hash:
                     ($hashes["\(.android_version)-\(.kernel_version)"] // "unknown")
@@ -752,8 +620,7 @@ jobs:
           )
 
           merged_matrix=$(
-            echo "$merged_matrix"
-            |
+            echo "$merged_matrix" |
             jq '
               sort_by(
                 (.os_version | gsub("A"; "") | tonumber? // 0) * -1,
@@ -762,14 +629,8 @@ jobs:
             '
           )
 
-
-          # --------------------------------------------------------
-          # FINAL HARD OP15 VALIDATION
-          # --------------------------------------------------------
-
           non_op15_count=$(
-            echo "$merged_matrix"
-            |
+            echo "$merged_matrix" |
             jq '[.[] | select(.model != "OP15")] | length'
           )
 
@@ -782,11 +643,6 @@ jobs:
             exit 1
 
           fi
-
-
-          # --------------------------------------------------------
-          # Write matrix output
-          # --------------------------------------------------------
 
           wrapped=$(
             jq -n \
@@ -802,19 +658,13 @@ jobs:
           echo "=================================================="
 
           echo "$merged_matrix" | jq -r '
-            .[]
-            |
+            .[] |
             "MODEL=\(.model) OS=\(.os_version) KERNEL=\(.android_version)-\(.kernel_version)"
           '
 
           echo "=================================================="
 
           echo "::endgroup::"
-
-
-      # ------------------------------------------------------------
-      # Upload build matrix
-      # ------------------------------------------------------------
 
       - name: Upload build matrix
         uses: actions/upload-artifact@v7
@@ -824,11 +674,6 @@ jobs:
           archive: false
           retention-days: 7
 
-
-      # ------------------------------------------------------------
-      # Summary
-      # ------------------------------------------------------------
-
       - name: 📊 Build plan summary
         run: |
           ksu_type="${{ fromJSON(steps.set-matrix.outputs.ksu_options_normalized)[0].type }}"
@@ -837,25 +682,17 @@ jobs:
           ksu_display=""
 
           if [[ "$ksu_ref" =~ ^[0-9a-f]{40}$ ]]; then
-
             ksu_display+="📌 \`$ksu_type\`, \`$ksu_ref\`"
-
           else
-
             ksu_display+="🔀 \`$ksu_type\`, \`$ksu_ref\` (\`${{ steps.set-matrix.outputs.ksu_resolved_hash }}\`)"
-
           fi
 
           build_ts_input="${{ inputs.build_timestamp }}"
 
           if [ -z "$build_ts_input" ]; then
-
             build_ts_display="⏱️ auto (current build time)"
-
           else
-
             build_ts_display="📌 \`$build_ts_input\`"
-
           fi
 
           {
@@ -869,12 +706,13 @@ jobs:
 
           **Other OnePlus models:** 🚫 Disabled
 
+          **Download AK3_OP15 Artifact:** ${{ inputs.download_artifact && '✅ Yes' || '❌ No' }}
+
           **Configuration:**
 
           EOF
 
             echo "- KSU Config: $ksu_display"
-
             echo "- Build Timestamp: $build_ts_display"
 
             cat << EOF
@@ -898,31 +736,19 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
           declare -A susfs_inputs=(
-
             ["android12-5.10"]="${{ inputs.android12-5_10_susfs_branch_or_commit }}"
-
             ["android13-5.15"]="${{ inputs.android13-5_15_susfs_branch_or_commit }}"
-
             ["android14-6.1"]="${{ inputs.android14-6_1_susfs_branch_or_commit }}"
-
             ["android15-6.6"]="${{ inputs.android15-6_6_susfs_branch_or_commit }}"
-
             ["android16-6.12"]="${{ inputs.android16-6_12_susfs_branch_or_commit }}"
-
           )
 
           declare -A step_hashes=(
-
             ["android12-5.10"]="${{ steps.set-matrix.outputs.susfs_hash_android12_5_10 }}"
-
             ["android13-5.15"]="${{ steps.set-matrix.outputs.susfs_hash_android13_5_15 }}"
-
             ["android14-6.1"]="${{ steps.set-matrix.outputs.susfs_hash_android14_6_1 }}"
-
             ["android15-6.6"]="${{ steps.set-matrix.outputs.susfs_hash_android15_6_6 }}"
-
             ["android16-6.12"]="${{ steps.set-matrix.outputs.susfs_hash_android16_6_12 }}"
-
           )
 
           IFS=',' read -ra active_keys_display \
@@ -1051,6 +877,7 @@ jobs:
               else
 
                 echo "::error::Could not create cache release: $tag"
+
                 exit 1
 
               fi
@@ -1160,7 +987,6 @@ jobs:
 
           echo "::endgroup::"
 
-
       - name: Upload ccache artifact
         uses: actions/upload-artifact@v7
         with:
@@ -1207,10 +1033,6 @@ jobs:
 
     steps:
 
-      # ------------------------------------------------------------
-      # HARD OP15 CHECK
-      # ------------------------------------------------------------
-
       - name: 🛡️ Verify OP15-only build
         shell: bash
         run: |
@@ -1229,29 +1051,14 @@ jobs:
 
           echo "✅ OP15 verified."
 
-
-      # ------------------------------------------------------------
-      # Checkout
-      # ------------------------------------------------------------
-
       - name: 📥 Checkout Code
         uses: actions/checkout@v6
         with:
           fetch-depth: 1
 
-
-      # ------------------------------------------------------------
-      # Disk cleanup
-      # ------------------------------------------------------------
-
       - name: 🧹 Emergency Disk Cleanup
         if: ${{ matrix.disk_cleanup }}
         uses: ./.github/actions/disk-cleanup
-
-
-      # ------------------------------------------------------------
-      # Dependencies
-      # ------------------------------------------------------------
 
       - name: Install Minimal Dependencies
         run: |
@@ -1302,11 +1109,6 @@ jobs:
 
           echo "::endgroup::"
 
-
-      # ------------------------------------------------------------
-      # Download ccache binary
-      # ------------------------------------------------------------
-
       - name: Get prebuilt ccache
         uses: actions/download-artifact@v8
         with:
@@ -1314,11 +1116,6 @@ jobs:
           path: ccache-dl
 
         continue-on-error: true
-
-
-      # ------------------------------------------------------------
-      # Install ccache
-      # ------------------------------------------------------------
 
       - name: Install ccache
         run: |
@@ -1352,11 +1149,6 @@ jobs:
 
           echo "::endgroup::"
 
-
-      # ------------------------------------------------------------
-      # Configure ccache and LTO cache
-      # ------------------------------------------------------------
-
       - name: ♻️ Configure ccache & LTO cache (bounded)
         run: |
 
@@ -1367,9 +1159,7 @@ jobs:
           if command -v ccache >/dev/null 2>&1; then
 
             CACHE_DIR="${{ github.workspace }}/.ccache"
-
             LDCACHE_DIR="${{ github.workspace }}/.ld_cache"
-
             CCACHE_LOG="${{ github.workspace }}/ccache.log"
 
             mkdir -p "$CACHE_DIR"
@@ -1378,33 +1168,19 @@ jobs:
             SETTINGS=(
 
               "CCACHE_DIR=$CACHE_DIR"
-
               "LDCACHE_DIR=$LDCACHE_DIR"
-
               "CCACHE_MAXSIZE=12G"
-
               "CCACHE_COMPILERCHECK=content"
-
               "CCACHE_BASEDIR=${GITHUB_WORKSPACE}"
-
               "CCACHE_NOHASHDIR=true"
-
               "CCACHE_IGNOREOPTIONS=--sysroot*"
-
               "CCACHE_COMPRESSION=true"
-
               "CCACHE_COMPRESSION_LEVEL=3"
-
               "CCACHE_DIRECT=true"
-
               "CCACHE_FILE_CLONE=true"
-
               "CCACHE_INODE_CACHE=true"
-
               "CCACHE_IS_KERNEL_COMPILING=true"
-
               "CCACHE_UMASK=002"
-
               "CCACHE_SLOPPINESS=file_macro,time_macros,include_file_mtime,include_file_ctime,pch_defines,system_headers,locale"
 
             )
@@ -1449,11 +1225,6 @@ jobs:
 
           echo "::endgroup::"
 
-
-      # ------------------------------------------------------------
-      # Remove KSU-specific fields from config
-      # ------------------------------------------------------------
-
       - name: 🧹 Prepare op_config_json
         id: prepare_config
         shell: bash
@@ -1466,11 +1237,6 @@ jobs:
               '$m | del(.ksu_type, .ksu_hash, .ksu_resolved_hash)'
 
           )" >> "$GITHUB_OUTPUT"
-
-
-      # ------------------------------------------------------------
-      # Build OP15
-      # ------------------------------------------------------------
 
       - name: 🔨 Build OP15 Kernel
         id: build
@@ -1496,124 +1262,6 @@ jobs:
 
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-
-      # ============================================================
-      # NEW: FIND OP15 ANYKERNEL3 ZIP
-      # ============================================================
-
-      - name: 🔎 Find OP15 AnyKernel3 ZIP
-        id: find-ak3
-        if: ${{ steps.build.outcome == 'success' }}
-        shell: bash
-        run: |
-
-          set -euo pipefail
-
-          echo "::group::Searching for OP15 AnyKernel3 ZIP"
-
-          AK3_DIR="${RUNNER_TEMP}/op15-ak3"
-
-          rm -rf "$AK3_DIR"
-
-          mkdir -p "$AK3_DIR"
-
-          echo "Searching workspace for:"
-          echo "  AK3_OP15*.zip"
-
-          echo ""
-
-          mapfile -t AK3_FILES < <(
-            find "$GITHUB_WORKSPACE" \
-              -type f \
-              -name 'AK3_OP15*.zip' \
-              -print
-          )
-
-          if [ "${#AK3_FILES[@]}" -eq 0 ]; then
-
-            echo "::error::No AK3_OP15*.zip was found after the kernel build."
-
-            echo ""
-
-            echo "Files containing 'AK3' found in workspace:"
-
-            find "$GITHUB_WORKSPACE" \
-              -type f \
-              \( -iname '*AK3*' -o -iname '*AnyKernel*' \) \
-              -print \
-              | head -100 \
-              || true
-
-            echo ""
-
-            echo "Top-level ZIP files:"
-
-            find "$GITHUB_WORKSPACE" \
-              -type f \
-              -name '*.zip' \
-              -print \
-              | head -100 \
-              || true
-
-            exit 1
-
-          fi
-
-          echo "Found ${#AK3_FILES[@]} OP15 AK3 ZIP(s):"
-
-          for file in "${AK3_FILES[@]}"; do
-
-            echo "  ✅ $file"
-
-          done
-
-          echo ""
-
-          # ----------------------------------------------------------
-          # Copy only the OP15 AK3 ZIP(s) to a clean directory.
-          # ----------------------------------------------------------
-
-          for file in "${AK3_FILES[@]}"; do
-
-            cp -f \
-              "$file" \
-              "$AK3_DIR/"
-
-          done
-
-          echo "Artifact contents:"
-
-          ls -lah "$AK3_DIR"
-
-          echo ""
-
-          echo "ak3_dir=$AK3_DIR" >> "$GITHUB_OUTPUT"
-
-          echo "::endgroup::"
-
-
-      # ============================================================
-      # NEW: UPLOAD AK3 ZIP AS GITHUB ACTIONS ARTIFACT
-      # ============================================================
-
-      - name: 📦 Upload OP15 AnyKernel3 ZIP
-        if: ${{ steps.build.outcome == 'success' }}
-        uses: actions/upload-artifact@v7
-        with:
-
-          name: AK3-OP15-${{ matrix.os_version }}-${{ matrix.android_version }}-${{ matrix.kernel_version }}-${{ matrix.ksu_type }}
-
-          path: ${{ steps.find-ak3.outputs.ak3_dir }}/*.zip
-
-          if-no-files-found: error
-
-          retention-days: 7
-
-
-      # ------------------------------------------------------------
-      # Statistics
-      # ------------------------------------------------------------
-
       - name: 📊 Build statistics
         id: build-stat
         if: always()
@@ -1622,15 +1270,11 @@ jobs:
           echo "::group::Build Statistics"
 
           echo "Device: ${{ matrix.model }}"
-
           echo "OS Version: ${{ matrix.os_version }}"
-
           echo "Kernel: ${{ matrix.android_version }}-${{ matrix.kernel_version }}"
 
           if [ "${{ matrix.susfs }}" = true ]; then
-
             echo "SUSFS Hash: ${{ matrix.susfs_resolved_hash }}"
-
           fi
 
           echo "Status: ${{ job.status }}"
@@ -1638,13 +1282,10 @@ jobs:
           if [ "${{ steps.build.outcome }}" = "success" ]; then
 
             echo ""
-
             echo "✅ OP15 build completed successfully"
-
             echo ""
 
             echo "Outputs:"
-
             echo "  - Kernel: ${{ steps.build.outputs.kernel_version }}"
 
             if [ "${{ matrix.ksu_type }}" = "KSUN" ]; then
@@ -1668,9 +1309,7 @@ jobs:
             fi
 
             if [ "${{ matrix.susfs }}" = true ]; then
-
               echo "  - SUSFS: ${{ steps.build.outputs.susfs_version }}"
-
             fi
 
             echo "  - Build time: ${{ steps.build.outputs.build_time }}s"
@@ -1678,7 +1317,6 @@ jobs:
             if [ "${{ inputs.clean_build }}" != "true" ]; then
 
               echo "  - ccache hit rate: ${{ steps.build.outputs.ccache_hit_rate }}"
-
               echo "  - ccache direct rate: ${{ steps.build.outputs.ccache_direct_rate }}"
 
             else
@@ -1688,9 +1326,7 @@ jobs:
             fi
 
             if [ -n "${{ steps.build.outputs.warnings }}" ]; then
-
               echo "  - Warnings: ${{ steps.build.outputs.warnings }}"
-
             fi
 
           else
@@ -1700,11 +1336,6 @@ jobs:
           fi
 
           echo "::endgroup::"
-
-
-      # ------------------------------------------------------------
-      # Job summary
-      # ------------------------------------------------------------
 
       - name: 📝 Job summary
         if: always()
@@ -1796,39 +1427,6 @@ jobs:
 
           fi
 
-
-      # ============================================================
-      # NEW: AK3 DOWNLOAD INFORMATION
-      # ============================================================
-
-      - name: 📥 AK3 artifact summary
-        if: ${{ steps.build.outcome == 'success' }}
-        shell: bash
-        run: |
-
-          cat >> "$GITHUB_STEP_SUMMARY" << EOF
-
-          ---
-
-          ## 📦 OP15 AnyKernel3 Download
-
-          The OP15 AnyKernel3 kernel ZIP has been uploaded as a GitHub Actions artifact.
-
-          **Artifact:**
-
-          \`AK3-OP15-${{ matrix.os_version }}-${{ matrix.android_version }}-${{ matrix.kernel_version }}-${{ matrix.ksu_type }}\`
-
-          Go to the **Artifacts** section of this workflow run to download the kernel ZIP.
-
-          **Target:** OP15 only.
-
-          EOF
-
-
-      # ------------------------------------------------------------
-      # Cleanup
-      # ------------------------------------------------------------
-
       - name: 🧹 Final cleanup and space report
         if: always()
         run: |
@@ -1846,24 +1444,217 @@ jobs:
           if command -v ccache >/dev/null 2>&1; then
 
             echo ""
-
             echo "📊 ccache statistics after build:"
-
             ccache -s
 
             echo ""
-
             echo "💾 ccache preserved for cache upload"
 
           fi
 
           echo ""
-
           echo "💽 Final disk usage:"
-
           df -h /
 
           echo "::endgroup::"
+
+
+# ==================================================================
+# DOWNLOAD ARTIFACT OPTION
+#
+# This job runs only when:
+#
+#   download_artifact = true
+#
+# It downloads the artifacts generated by the matrix build and
+# creates one dedicated GitHub Actions artifact:
+#
+#   AK3_OP15
+#
+# The artifact contains the actual AK3_OP15*.zip kernel files.
+# ==================================================================
+
+  download_op15_artifact:
+
+    name: 📥 Prepare AK3_OP15 Download Artifact
+
+    needs:
+      - set-op-model
+      - build
+
+    if: |
+      !cancelled() &&
+      inputs.download_artifact == true &&
+      needs.set-op-model.result == 'success' &&
+      needs.build.result == 'success'
+
+    runs-on: ubuntu-latest
+
+    permissions:
+      actions: read
+
+    steps:
+
+      # ------------------------------------------------------------
+      # Download all build artifacts
+      # ------------------------------------------------------------
+
+      - name: 📥 Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: ./downloaded-artifacts
+          merge-multiple: true
+          skip-decompress: true
+
+      # ------------------------------------------------------------
+      # Extract only OP15 kernel ZIP artifacts
+      # ------------------------------------------------------------
+
+      - name: 🛡️ Verify and prepare OP15 artifacts
+        shell: bash
+        run: |
+
+          set -euo pipefail
+
+          echo "::group::Preparing AK3_OP15 artifact"
+
+          mkdir -p ./AK3_OP15
+
+          found=0
+
+          echo "Available downloaded files:"
+
+          find ./downloaded-artifacts \
+            -maxdepth 2 \
+            -type f \
+            -printf '  %p\n' \
+            | sort
+
+          echo ""
+
+          while IFS= read -r -d '' file; do
+
+            filename="$(basename "$file")"
+
+            echo "Checking: $filename"
+
+            # ------------------------------------------------------
+            # HARD OP15 CHECK
+            # ------------------------------------------------------
+
+            if [[ "$filename" == AK3_OP15*.zip ]]; then
+
+              echo "  ✅ OP15 artifact accepted"
+
+              cp -f \
+                "$file" \
+                "./AK3_OP15/$filename"
+
+              found=1
+
+            fi
+
+          done < <(
+            find ./downloaded-artifacts \
+              -type f \
+              -name "*.zip" \
+              -print0
+          )
+
+          if [ "$found" -eq 0 ]; then
+
+            echo "::error::No AK3_OP15*.zip artifact was found."
+
+            echo ""
+            echo "Downloaded files:"
+
+            find ./downloaded-artifacts \
+              -type f \
+              -printf '  %p\n' \
+              | sort
+
+            exit 1
+
+          fi
+
+          echo ""
+          echo "=================================================="
+          echo "AK3_OP15 DOWNLOAD ARTIFACT"
+          echo "=================================================="
+
+          find ./AK3_OP15 \
+            -maxdepth 1 \
+            -type f \
+            -name "AK3_OP15*.zip" \
+            -printf '  %f\n' \
+            | sort
+
+          echo ""
+          echo "Total files: $(
+            find ./AK3_OP15 \
+              -maxdepth 1 \
+              -type f \
+              -name "AK3_OP15*.zip" \
+              | wc -l
+          )"
+
+          echo "=================================================="
+
+          echo "::endgroup::"
+
+      # ------------------------------------------------------------
+      # Upload dedicated artifact
+      # ------------------------------------------------------------
+
+      - name: 📦 Upload AK3_OP15 artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: AK3_OP15
+          path: ./AK3_OP15/AK3_OP15*.zip
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+      # ------------------------------------------------------------
+      # Summary
+      # ------------------------------------------------------------
+
+      - name: 📊 AK3_OP15 artifact summary
+        shell: bash
+        run: |
+
+          set -euo pipefail
+
+          {
+            echo ""
+            echo "## 📥 AK3_OP15 Download Artifact"
+            echo ""
+            echo "The following OP15 kernel ZIP(s) are available in the workflow **Artifacts** section:"
+            echo ""
+
+            for file in ./AK3_OP15/AK3_OP15*.zip; do
+
+              [ -f "$file" ] || continue
+
+              filename="$(basename "$file")"
+
+              size=$(stat -c%s "$file")
+
+              size_mb=$(
+                echo "scale=2; $size / 1024 / 1024" |
+                bc
+              )
+
+              echo "- \`$filename\` — ${size_mb} MB"
+
+            done
+
+            echo ""
+            echo "> Artifact name: \`AK3_OP15\`"
+            echo ""
+            echo "> Retention: **7 days**"
+
+          } >> "$GITHUB_STEP_SUMMARY"
 
 
 # ==================================================================
@@ -1896,22 +1687,12 @@ jobs:
 
       RELEASE_NAME: '*TEST BUILD* OnePlus 15 Kernel With KernelSU Next & SUSFS ${{ needs.set-op-model.outputs.susfs_base_version }} *TEST BUILD*'
 
-
     steps:
-
-      # ------------------------------------------------------------
-      # Checkout
-      # ------------------------------------------------------------
 
       - name: 📥 Checkout code
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-
-
-      # ------------------------------------------------------------
-      # Verify release is OP15 only
-      # ------------------------------------------------------------
 
       - name: 🛡️ Verify release contains OP15 only
         run: |
@@ -1928,11 +1709,6 @@ jobs:
 
           echo "✅ Release target verified: OP15"
 
-
-      # ------------------------------------------------------------
-      # Generate tag
-      # ------------------------------------------------------------
-
       - name: 🏷️ Generate and Create New Tag
         run: |
 
@@ -1945,22 +1721,18 @@ jobs:
                   .[]
                   |
                   select(
-                    .name
-                    |
+                    .name |
                     startswith(\"${SUSFS_BASE_VERSION}-r\")
                   )
                 ]
                 |
                 sort_by(
-                  .name
-                  |
-                  split(\"-r\")[1]
-                  |
+                  .name |
+                  split(\"-r\")[1] |
                   tonumber
                 )
                 |
-                last
-                |
+                last |
                 .name // empty
               "
           )
@@ -1972,8 +1744,7 @@ jobs:
           else
 
             NEW_TAG=$(
-              echo "$LATEST_MATCHING_TAG"
-              |
+              echo "$LATEST_MATCHING_TAG" |
               awk -F'-r' '{
                 printf "%s-r%d", $1, $2+1
               }'
@@ -1989,22 +1760,12 @@ jobs:
 
           git push origin "$NEW_TAG"
 
-
-      # ------------------------------------------------------------
-      # Download artifacts
-      # ------------------------------------------------------------
-
       - name: 📥 Download Artifacts
         uses: actions/download-artifact@v8
         with:
           path: ./downloaded-artifacts
           merge-multiple: true
           skip-decompress: true
-
-
-      # ------------------------------------------------------------
-      # Generate release notes
-      # ------------------------------------------------------------
 
       - name: 📝 Generate Device List and Final Release Notes
         id: generate-notes
@@ -2014,17 +1775,9 @@ jobs:
 
           echo "=== Start building OP15 release notes ==="
 
-          # --------------------------------------------------------
-          # Remove ccache binary artifact
-          # --------------------------------------------------------
-
           rm -f \
             ./downloaded-artifacts/ccache-binary.zip \
             || true
-
-          # --------------------------------------------------------
-          # Collect build metadata
-          # --------------------------------------------------------
 
           declare -A device_info
 
@@ -2049,28 +1802,16 @@ jobs:
             IFS='_' read -ra parts <<< "$rest"
 
             model="${parts[0]}"
-
             os_version="${parts[1]}"
-
             kernel_version="${parts[2]}"
-
             ksu_type="${parts[3]}"
-
             ksu_ver="${parts[4]}"
 
             if [ "${parts[5]:-}" = "SuSFS" ]; then
-
               susfs_ver="${parts[6]:-unknown}"
-
             else
-
               susfs_ver="none"
-
             fi
-
-            # ----------------------------------------------------
-            # HARD OP15 CHECK
-            # ----------------------------------------------------
 
             if [ "$model" != "OP15" ]; then
 
@@ -2097,25 +1838,15 @@ jobs:
           CLEAN_BUILD="${{ inputs.clean_build }}"
 
           declare -A susfs_map=(
-
             ["android12-5.10"]="${{ needs.set-op-model.outputs.susfs_hash_android12_5_10 }}"
-
             ["android13-5.15"]="${{ needs.set-op-model.outputs.susfs_hash_android13_5_15 }}"
-
             ["android14-6.1"]="${{ needs.set-op-model.outputs.susfs_hash_android14_6_1 }}"
-
             ["android15-6.6"]="${{ needs.set-op-model.outputs.susfs_hash_android15_6_6 }}"
-
             ["android16-6.12"]="${{ needs.set-op-model.outputs.susfs_hash_android16_6_12 }}"
-
           )
 
           IFS=',' read -ra active_gki_keys \
             <<< "${{ needs.set-op-model.outputs.active_gki_keys }}"
-
-          # --------------------------------------------------------
-          # Release notes header
-          # --------------------------------------------------------
 
           cat << EOF > release_notes.md
 
@@ -2149,8 +1880,7 @@ jobs:
               <<< "${device_info["$full_key"]}"
 
             full_kv=$(
-              echo "$kernel_ver"
-              |
+              echo "$kernel_ver" |
               sed 's/^[^-]*-//'
             )
 
@@ -2163,8 +1893,7 @@ jobs:
                 --arg OS "$os_ver" '
                 (
                   [
-                    .[]
-                    |
+                    .[] |
                     select(
                       .model == $ORIG_MODEL
                       and
@@ -2175,8 +1904,7 @@ jobs:
                 //
                 (
                   [
-                    .[]
-                    |
+                    .[] |
                     select(
                       .model == $MODEL
                       and
@@ -2213,23 +1941,14 @@ jobs:
                 <<< "$feature_flags"
 
               [[ "$hmbird" == "true" ]] && features+=("🐦 HMBIRD")
-
               [[ "$susfs" == "true" ]] && features+=("ඞ SusFS")
-
               [[ "$bbr" == "true" ]] && features+=("🚀 BBR")
-
               [[ "$bbr3" == "true" ]] && features+=("🚀 BBRv3")
-
               [[ "$bbg" == "true" ]] && features+=("🛡️ BBG")
-
               [[ "$ttl" == "true" ]] && features+=("🌐 TTL")
-
               [[ "$ip_set" == "true" ]] && features+=("🧱 IP_SET & IPv6 NAT")
-
               [[ "$unicode" == "true" ]] && features+=("🔧 Unicode Fix")
-
               [[ "$ds" == "true" ]] && features+=("💻 Droidspaces")
-
               [[ "$ntsync" == "true" ]] && features+=("🔃 NTSync")
 
               total=${#features[@]}
@@ -2253,13 +1972,9 @@ jobs:
                   if [ "$count" -lt "$total" ]; then
 
                     if [ $((count % 3)) -eq 0 ]; then
-
                       features_str+="<br>"
-
                     else
-
                       features_str+="   "
-
                     fi
 
                   fi
@@ -2271,13 +1986,9 @@ jobs:
             fi
 
             if [[ "$os_ver" =~ ^A[0-9]+$ ]]; then
-
               os_display_version="Android ${os_ver#A}"
-
             else
-
               os_display_version="$os_ver"
-
             fi
 
             download_url="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${NEW_TAG}/${zipfile}.zip"
@@ -2293,11 +2004,9 @@ jobs:
               >> release_notes.md
 
           done < <(
-
             printf '%s\n' \
               "${!device_info[@]}" |
               sort
-
           )
 
           if [ ${#device_info[@]} -eq 0 ]; then
@@ -2325,10 +2034,6 @@ jobs:
             _ \
             <<< "${device_info["$first_entry"]}"
 
-          # --------------------------------------------------------
-          # Build configuration
-          # --------------------------------------------------------
-
           cat << EOF >> release_notes.md
 
           ---
@@ -2345,13 +2050,9 @@ jobs:
             local resolved="$2"
 
             if [[ "$input" =~ ^[0-9a-f]{40}$ ]]; then
-
               echo "$input"
-
             else
-
               echo "$input ($resolved)"
-
             fi
 
           }
@@ -2563,11 +2264,6 @@ jobs:
 
           cat release_notes.md
 
-
-      # ------------------------------------------------------------
-      # Create production/test release
-      # ------------------------------------------------------------
-
       - name: 🚀 Create GitHub Release
         run: |
 
@@ -2576,11 +2272,6 @@ jobs:
             --title "${{ env.RELEASE_NAME }}" \
             --notes-file release_notes.md \
             --draft
-
-
-      # ------------------------------------------------------------
-      # Upload kernel ZIPs
-      # ------------------------------------------------------------
 
       - name: 📤 Upload OP15 Release Assets
         run: |
@@ -2593,14 +2284,12 @@ jobs:
 
               basename_file=$(basename "$file")
 
-              # Never upload ccache artifact
               if [ "$basename_file" = "ccache-binary.zip" ]; then
                 continue
               fi
 
               echo "Checking asset: $basename_file"
 
-              # Only OP15 assets are allowed.
               if [[ "$basename_file" != AK3_OP15* ]]; then
 
                 echo "::error::Blocked non-OP15 release asset: $basename_file"
@@ -2621,11 +2310,6 @@ jobs:
 
           done
 
-
-      # ------------------------------------------------------------
-      # Release summary
-      # ------------------------------------------------------------
-
       - name: 📊 Release summary
         if: success()
         run: |
@@ -2641,13 +2325,11 @@ jobs:
           **Tag:** [\`${{ env.NEW_TAG }}\`](${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ env.NEW_TAG }})
 
           **Kernels:** $(
-
             find ./downloaded-artifacts \
               -maxdepth 1 \
               -name "AK3_OP15*.zip" \
               -type f |
               wc -l
-
           )
 
           ### 📦 Assets
@@ -2683,8 +2365,9 @@ jobs:
           - \`ccache-cache\` — Pre-release / not Latest
           - \`lto-cache\` — Pre-release / not Latest
 
-          ### 📦 Actions Artifact
+          ### 📥 Actions Artifact
 
-          The OP15 AnyKernel3 ZIP is also available from the workflow run's **Artifacts** section.
+          - \`AK3_OP15\` — ${{ inputs.download_artifact && 'Enabled' || 'Disabled' }}
 
           EOF
+```
